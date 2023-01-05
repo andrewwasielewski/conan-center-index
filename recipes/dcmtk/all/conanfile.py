@@ -1,11 +1,15 @@
+from conans import CMake, tools
+from conan import ConanFile
 from conan.tools.microsoft import msvc_runtime_flag
-from conans import ConanFile, CMake, tools
-from conans.errors import ConanInvalidConfiguration
+from conan.errors import ConanInvalidConfiguration
+from conan.tools.build import cross_building
+from conan.tools.files import get, rmdir
+from conan.tools.scm import Version
 import functools
 import os
 import textwrap
 
-required_conan_version = ">=1.43.0"
+required_conan_version = ">=1.53.0"
 
 
 class DCMTKConan(ConanFile):
@@ -103,14 +107,13 @@ class DCMTKConan(ConanFile):
             self.requires("tcp-wrappers/7.6")
 
     def validate(self):
-        if hasattr(self, "settings_build") and tools.cross_building(self) and \
+        if hasattr(self, "settings_build") and cross_building(self) and \
            self.settings.os == "Macos" and self.settings.arch == "armv8":
             # FIXME: Probable issue with flags, build includes header 'mmintrin.h'
             raise ConanInvalidConfiguration("Cross building to Macos M1 is not supported (yet)")
 
     def source(self):
-        tools.get(**self.conan_data["sources"][self.version],
-                  destination=self._source_subfolder, strip_root=True)
+        get(self, **self.conan_data["sources"][self.version], strip_root=True)
 
     @functools.lru_cache(1)
     def _configure_cmake(self):
@@ -185,14 +188,14 @@ class DCMTKConan(ConanFile):
         cmake = self._configure_cmake()
         cmake.install()
 
-        tools.rmdir(os.path.join(self.package_folder, "cmake"))
-        tools.rmdir(os.path.join(self.package_folder, "lib", "cmake"))
-        tools.rmdir(os.path.join(self.package_folder, "etc"))
-        tools.rmdir(os.path.join(self.package_folder, "share"))
+        rmdir(self, os.path.join(self.package_folder, "cmake"))
+        rmdir(self, os.path.join(self.package_folder, "lib", "cmake"))
+        rmdir(self, os.path.join(self.package_folder, "etc"))
+        rmdir(self, os.path.join(self.package_folder, "share"))
 
         self._create_cmake_module_alias_targets(
             os.path.join(self.package_folder, self._module_file_rel_path),
-            {target: "DCMTK::{}".format(target) for target in self._dcmtk_components.keys()}
+            {target: f"DCMTK::{target}" for target in self._dcmtk_components}
         )
 
     @staticmethod
@@ -213,8 +216,7 @@ class DCMTKConan(ConanFile):
 
     @property
     def _module_file_rel_path(self):
-        return os.path.join(self._module_subfolder,
-                            "conan-official-{}-targets.cmake".format(self.name))
+        return os.path.join(self._module_subfolder, f"conan-official-{self.name}-targets.cmake")
 
     @property
     def _dcmtk_components(self):
@@ -241,7 +243,7 @@ class DCMTKConan(ConanFile):
         def xml2():
             return ["libxml2::libxml2"] if self.options.with_libxml2 else []
 
-        charls = "dcmtkcharls" if tools.Version("3.6.6") <= self.version else "charls"
+        charls = "dcmtkcharls" if Version("3.6.6") <= self.version else "charls"
 
         return {
             "ofstd"   : charset_conversion(),
@@ -309,12 +311,12 @@ class DCMTKConan(ConanFile):
         register_components(self._dcmtk_components)
 
         dcmdictpath = os.path.join(self._dcm_datadictionary_path, "dcmtk", "dicom.dic")
-        self.output.info("Settings DCMDICTPATH environment variable: {}".format(dcmdictpath))
+        self.output.info(f"Settings DCMDICTPATH environment variable: {dcmdictpath}")
         self.runenv_info.define_path("DCMDICTPATH", dcmdictpath)
         self.env_info.DCMDICTPATH = dcmdictpath # remove in conan v2?
 
         if self.options.with_applications:
             self.buildenv_info.define_path("DCMDICTPATH", dcmdictpath)
             bin_path = os.path.join(self.package_folder, "bin")
-            self.output.info("Appending PATH environment variable: {}".format(bin_path))
+            self.output.info(f"Appending PATH environment variable: {bin_path}")
             self.env_info.PATH.append(bin_path)
